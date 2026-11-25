@@ -1,0 +1,1640 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>战术小游戏 v0.7.3 · 死星补偿 / 决死冲锋 / NP上限 / 技术封锁修复</title>
+    <style>
+        body {
+            margin: 0;
+            background: #12181f;
+            color: #dbe5f0;
+            font-family: system-ui,sans-serif;
+            font-size: 14px
+        }
+
+        #top {
+            padding: 10px;
+            border-bottom: 1px solid #2b3949
+        }
+
+        #wrap {
+            display: flex;
+            gap: 16px;
+            padding: 12px;
+            align-items: flex-start
+        }
+
+        #map td {
+            width: 78px;
+            height: 78px;
+            border: 1px solid #2b3949;
+            vertical-align: top;
+            padding: 4px;
+            cursor: pointer;
+            border-radius: 6px
+        }
+
+            #map td.own0 {
+                background: #16283f;
+                border-color: #3b82f6
+            }
+
+            #map td.own1 {
+                background: #3a1d21;
+                border-color: #ef4444
+            }
+
+            #map td.neu {
+                background: #1a2129;
+                border-style: dashed
+            }
+
+            #map td.empty {
+                background: #141b23
+            }
+
+            #map td.sel {
+                outline: 2px solid #f59e0b
+            }
+
+            #map td.pick {
+                outline: 2px solid #22c55e;
+                box-shadow: 0 0 8px rgba(34,197,94,.5)
+            }
+
+            #map td.full {
+                outline: 2px solid #ef4444;
+                box-shadow: 0 0 8px rgba(239,68,68,.5)
+            }
+
+            #map td.view {
+                box-shadow: inset 0 0 0 2px #64748b
+            }
+
+            #map td.ds {
+                box-shadow: inset 0 0 0 2px #a855f7
+            }
+
+        #side {
+            min-width: 320px;
+            max-width: 400px
+        }
+
+        button {
+            background: #1e2936;
+            color: #dbe5f0;
+            border: 1px solid #2b3949;
+            border-radius: 5px;
+            padding: 3px 7px;
+            margin: 2px;
+            cursor: pointer;
+            font-size: 12px
+        }
+
+            button:disabled {
+                opacity: .35;
+                cursor: not-allowed
+            }
+
+        #log {
+            height: 170px;
+            overflow: auto;
+            background: #0e141b;
+            border: 1px solid #2b3949;
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #9fb3c6
+        }
+
+        .log-title {
+            font-size: 12px;
+            color: #5b6b7c;
+            margin-bottom: 4px
+        }
+
+        .box {
+            border: 1px solid #2b3949;
+            border-radius: 6px;
+            padding: 7px;
+            margin-bottom: 7px;
+            background: #101720;
+            line-height: 1.5
+        }
+
+            .box b {
+                color: #cfe0f0
+            }
+
+        .dim {
+            color: #5b6b7c;
+            font-size: 11px
+        }
+
+        .pickbox {
+            border: 1px solid #22c55e;
+            border-radius: 6px;
+            padding: 7px;
+            background: #0f1a14
+        }
+
+        .tech-on {
+            color: #22c55e;
+            font-weight: bold
+        }
+
+        .warn {
+            color: #f59e0b;
+            font-size: 11px
+        }
+
+        #gameover {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(6,10,16,.93);
+            z-index: 9999;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center
+        }
+
+            #gameover .title {
+                font-size: 64px;
+                font-weight: 900;
+                letter-spacing: 6px;
+                margin-bottom: 14px
+            }
+
+            #gameover .reason {
+                font-size: 18px;
+                color: #9fb3c6;
+                max-width: 600px
+            }
+
+            #gameover .np {
+                font-size: 14px;
+                color: #5b6b7c;
+                margin-top: 18px;
+                line-height: 1.7
+            }
+    </style>
+</head>
+<body>
+    <div id="top">战术小游戏 v0.7.3 · 死星补偿 / 决死冲锋 / NP上限 / 技术封锁修复 · <span id="hud">加载中</span></div>
+    <div id="wrap">
+        <div><table id="map"></table></div>
+        <div id="side">
+            <div id="pinfo"></div>
+            <div id="detail"></div>
+            <div id="acts"></div>
+        </div>
+    </div>
+    <div style="padding:0 12px 12px">
+        <div class="log-title">📋 操作日志（最新在上）</div>
+        <div id="log"></div>
+    </div>
+    <div id="gameover">
+        <div class="title" id="go-title"></div>
+        <div class="reason" id="go-reason"></div>
+        <div class="np" id="go-np"></div>
+    </div>
+
+    <script>
+        "use strict";
+
+        /* ===================== 全局状态 ===================== */
+        var N = 5;
+        var cells = [], armies = [], nextArmyId = 1, players = [];
+        var turn = 1, active = 0, logs = [];
+        var selected = null, moveMode = false, fortMode = false, viewCell = null;
+        var pick = null, buildCtx = null, engCtx = null, fortCtx = null, techMenu = false, techTab = "base";
+        var armyPick = null;
+        var techblockSelecting = false;
+        var gameOver = false;
+
+        var CITY_NONE = "empty", CITY_ORIGIN = "origin", CITY_NEUTRAL = "neutral", CITY_OWNED = "owned";
+        var RES_ORDER = ["coal", "iron", "copper", "uranium"];
+        var RES_NAME = { coal: "煤", iron: "铁", copper: "铜", uranium: "铀" };
+        var RES_IRON = { coal: 1, iron: 1, copper: 3, uranium: 12 };
+
+        /* 模块 */
+        var MODS = [
+            { id: "spear", name: "枪兵", cost: { iron: 10 }, hp: 4, atk: 5 },
+            { id: "elite", name: "高级兵", cost: { iron: 24 }, hp: 10, atk: 11 },
+            { id: "armor", name: "防弹衣", cost: { copper: 10 }, hp: 20, atk: 0 },
+            { id: "tank", name: "坦克", cost: { copper: 100 }, hp: 60, atk: 160 },
+            { id: "rocket", name: "火箭炮", cost: { coal: 150, copper: 180 }, hp: 0, atk: 400 }
+        ];
+
+        /* 工程 */
+        var ENGS = [
+            { id: "coalmine", name: "煤矿", cost: { iron: 5 }, out: { coal: 3 }, tier: "I" },
+            { id: "ironmine", name: "铁矿", cost: { coal: 5 }, out: { iron: 3 }, tier: "I" },
+            { id: "bigmine", name: "大矿", cost: { iron: 15, coal: 15, copper: 3 }, out: { coal: 5, iron: 5, copper: 3 }, tier: "I" },
+            { id: "uraniummine", name: "铀矿", cost: { iron: 25, copper: 30 }, out: { uranium: 3 }, tier: "II" },
+            { id: "trader", name: "交易设备", cost: { copper: 12 }, out: {}, special: "iron-25", tier: "II" },
+            { id: "deepmine", name: "深层矿", cost: { iron: 120, copper: 40 }, out: { coal: 4, iron: 16, uranium: 4 }, tier: "II" },
+            { id: "supply", name: "军队补给站", cost: { coal: 100, iron: 50, copper: 10, uranium: 10 }, out: {}, special: "heal30", tier: "II" },
+            { id: "nukemine", name: "核动力爆破矿", cost: { iron: 200, uranium: 100 }, out: { iron: 35, copper: 15, uranium: 5 }, tier: "III" },
+            { id: "autocannon", name: "自动造炮机", cost: { coal: 80, uranium: 5 }, out: {}, special: "atk12", tier: "III" },
+            { id: "deepcopper", name: "深层铜矿", cost: { iron: 40, uranium: 20 }, out: { copper: 10 }, tier: "III" },
+            { id: "deepuranium", name: "深层铀矿", cost: { iron: 150, uranium: 50 }, out: { uranium: 6 }, tier: "IV" },
+            { id: "autowall", name: "自动筑墙机", cost: { copper: 75, uranium: 6 }, out: {}, special: "hp30", tier: "IV" },
+            { id: "autofac", name: "自动工厂", cost: { copper: 100, uranium: 40 }, out: { copper: 4, uranium: 2 }, special: "hp30", tier: "IV" }
+        ];
+
+        /* 工事 */
+        var FORTS = [
+            { id: "gun", name: "枪", cost: { iron: 10 }, hp: 4, atk: 10, limit: 0 },
+            { id: "ironwall", name: "铁墙", cost: { iron: 20 }, hp: 30, atk: 0, limit: 0 },
+            { id: "mixwall", name: "阵地", cost: { coal: 80, iron: 30, copper: 4 }, hp: 40, atk: 80, limit: 0 },
+            { id: "copperwall", name: "铜墙", cost: { copper: 20 }, hp: 80, atk: 0, limit: 0 },
+            { id: "nukecannon", name: "核炮", cost: { copper: 80, uranium: 30 }, hp: -20, atk: 480, limit: 0, reqHpAbove: 20 },
+            { id: "blastlayer", name: "抗爆层", cost: { iron: 80, uranium: 40 }, hp: 100, atk: 0, limit: 1 },
+            { id: "ultguard", name: "终极加护", cost: { iron: 200, copper: 200, uranium: 120 }, hp: 300, atk: 0, limit: 1 }
+        ];
+
+        var ENG_LIMIT_PER_CITY = 3;
+
+        /* 基础科技 */
+        var BASE_TECHS = [
+            { id: "copper", name: "铜科技", aeUnlock: 1, resUnlock: {}, passive: true, desc: "每城基础产出+1铜" },
+            { id: "highsupply", name: "高效补给", aeUnlock: 1, resUnlock: { iron: 160, copper: 30, uranium: 30 }, passive: true, desc: "补给站回血与复苏回血×2" },
+            { id: "revive", name: "复苏", aeUnlock: 1, resUnlock: { copper: 40 }, aeAct: 1, resAct: { copper: 40 }, passive: false, desc: "指定军队+100HP" },
+            { id: "speed", name: "速行", aeUnlock: 1, resUnlock: {}, aeAct: 0, resAct: { iron: 40 }, passive: false, desc: "指定军队本回合移动上限5步，每回合限1次" },
+            { id: "receive", name: "接收", aeUnlock: 1, resUnlock: { iron: 200, uranium: 60 }, passive: true, desc: "占领城市时该城攻击力设为150" },
+            { id: "fortify", name: "固守", aeUnlock: 1, resUnlock: { iron: 250, uranium: 30 }, passive: true, desc: "占领城市时该城HP设为200" },
+            { id: "counterattack", name: "反击协议", aeUnlock: 2, resUnlock: { iron: 80, uranium: 60 }, passive: true, desc: "城市受死星远程攻击时反伤死星 60% 城市攻击" },
+            { id: "hunter", name: "猎星者", aeUnlock: 1, resUnlock: { iron: 50, uranium: 15 }, passive: true, desc: "己方军队对死星伤害×2" },
+            { id: "intercept", name: "拦截弹", aeUnlock: 1, resUnlock: { copper: 60, uranium: 10 }, aeAct: 1, resAct: { uranium: 15 }, passive: false, desc: "指定城市免疫下一次远程伤害，并延迟敌方死星充能2回合" },
+            { id: "techblock", name: "技术封锁", aeUnlock: 1, resUnlock: { coal: 200, copper: 200, uranium: 100 }, aeAct: 1, resAct: {}, passive: false, desc: "选择后期科技全局封锁（全局仅一次）" },
+            { id: "armor", name: "装甲强化", aeUnlock: 1, resUnlock: { iron: 200, copper: 80, uranium: 30 }, passive: true, desc: "己方军队战斗中受对方攻击×0.8" },
+            { id: "pursuit", name: "乘胜追击", aeUnlock: 1, resUnlock: { iron: 200, copper: 200, uranium: 60 }, aeAct: 1, resAct: { iron: 120 }, altResAct: { copper: 60 }, passive: false, desc: "消耗1层军功，HP+min(400,ceil(HP×0.5))，每军每回合1次" }
+        ];
+
+        /* 后期科技 */
+        var LATE_TECHS = [
+            { id: "industrial", name: "工业集成", aeUnlock: 1, resUnlock: { coal: 700, iron: 700, copper: 200 }, passive: true, desc: "建军模块数额外+核心数" },
+            { id: "uraniumplant", name: "铀浓缩厂", aeUnlock: 1, resUnlock: { iron: 500, copper: 400 }, passive: true, desc: "铀矿×1.5；每回合可60煤+60铁换3铀，最多3次" },
+            { id: "mobilization", name: "全民动员", aeUnlock: 1, resUnlock: { coal: 600, iron: 600, copper: 150 }, passive: true, desc: "军队支数上限+2；新军团初始5HP/5攻" },
+            { id: "railgun", name: "轨道炮台", aeUnlock: 1, resUnlock: { coal: 500, iron: 500, copper: 250, uranium: 150 }, passive: true, desc: "每2回合对全屏敌方军队200伤害（除死星）" },
+            { id: "skydefense", name: "天穹防御", aeUnlock: 1, resUnlock: { copper: 500, uranium: 200 }, passive: true, desc: "己方城市受远程伤害×0.6" },
+            { id: "giantfort", name: "巨型堡垒化", aeUnlock: 1, resUnlock: { coal: 900, iron: 900, copper: 400, uranium: 250 }, passive: false, onUnlock: "giantfort", desc: "解锁后选1城+2000HP、+500攻" },
+            { id: "wartimesystem", name: "战时体制", aeUnlock: 1, resUnlock: { coal: 1200, iron: 1200, copper: 400, uranium: 300 }, passive: true, desc: "工程产出×2" },
+            { id: "nuclearpeace", name: "核平协议", aeUnlock: 1, resUnlock: { coal: 800, uranium: 600 }, passive: false, onUnlock: "nuclearpeace", desc: "一次性：敌方所有城市失去ceil(HP×80%)HP" },
+            { id: "doomcharge", name: "决死冲锋", aeUnlock: 1, resUnlock: { iron: 800, uranium: 200 }, aeAct: 1, resAct: { uranium: 100 }, passive: false, desc: "发动（1AE+100铀）：指定军队+900HP，4回合后若未死亡受850伤害" }
+        ];
+
+        var ALL_TECHS = BASE_TECHS.concat(LATE_TECHS);
+
+        /* ===================== 工具 ===================== */
+        function say(m) { logs.push(m); if (logs.length > 400) logs.shift(); }
+        function cellAt(x, y) { return cells[y * N + x]; }
+        function engDef(id) { for (var i = 0; i < ENGS.length; i++) if (ENGS[i].id === id) return ENGS[i]; return null; }
+        function fortDef(id) { for (var i = 0; i < FORTS.length; i++) if (FORTS[i].id === id) return FORTS[i]; return null; }
+        function techDef(id) { for (var i = 0; i < ALL_TECHS.length; i++) if (ALL_TECHS[i].id === id) return ALL_TECHS[i]; return null; }
+
+        function canPay(p, cost) { for (var k in cost) if (cost.hasOwnProperty(k) && (p[k] || 0) < cost[k]) return false; return true; }
+        function pay(p, cost) { for (var k in cost) if (cost.hasOwnProperty(k)) p[k] = (p[k] || 0) - cost[k]; }
+        function costText(cost) { var a = []; for (var i = 0; i < RES_ORDER.length; i++) { var r = RES_ORDER[i]; if (cost[r]) a.push(RES_NAME[r] + cost[r]); } return a.length ? a.join("+") : "免费"; }
+        function costToIron(cost) { var t = 0; for (var k in cost) if (cost.hasOwnProperty(k)) t += cost[k] * RES_IRON[k]; return t; }
+        function sgn(n) { return (n >= 0 ? "+" : "") + n; }
+
+        function engEffectText(d) {
+            var a = [];
+            if (d.out) { for (var i = 0; i < RES_ORDER.length; i++) { var r = RES_ORDER[i]; if (d.out[r]) a.push(RES_NAME[r] + "+" + d.out[r]); } }
+            if (d.special === "iron-25") a.push("铁-25、铀+3（铁不足不产铀）");
+            if (d.special === "heal30") a.push("城内军队+30HP/回合");
+            if (d.special === "atk12") a.push("城市+12攻/回合");
+            if (d.special === "hp20") a.push("城市+20HP/回合");
+            if (d.special === "hp30") a.push("城市+30HP/回合");
+            return a.join("；") || "无效果";
+        }
+        function fortEffectText(d) {
+            var a = [];
+            if (d.hp) a.push(sgn(d.hp) + "HP");
+            if (d.atk) a.push(sgn(d.atk) + "攻");
+            if (d.reqHpAbove) a.push("要求HP>" + d.reqHpAbove);
+            if (d.limit === 1) a.push("每城限1");
+            return a.join("；") || "无效果";
+        }
+        function baseStats(c) {
+            if (c.type === CITY_ORIGIN) return { hp: 200, atk: 80 };
+            if (c.type === CITY_NEUTRAL) return { hp: 1000, atk: 150 };
+            if (c.type === CITY_OWNED) return { hp: 50, atk: 0 };
+            return { hp: 0, atk: 0 };
+        }
+        function cityTypeName(c) {
+            if (c.type === CITY_ORIGIN) return "原始城市";
+            if (c.type === CITY_NEUTRAL) return "中立城市";
+            if (c.type === CITY_OWNED) return "已占领城市";
+            return "空地";
+        }
+        function ownerName(pi) { return (pi === 0 || pi === 1) ? players[pi].name : "无主"; }
+
+        function coresOf(pi) {
+            var n = 0;
+            for (var i = 0; i < cells.length; i++) {
+                var c = cells[i];
+                if (c.owner === pi && c.hp > 0 && (c.origType === CITY_ORIGIN || c.origType === CITY_NEUTRAL)) n++;
+            }
+            return n;
+        }
+        function armyCap(pi) {
+            var base = coresOf(pi) >= 2 ? 3 : 2;
+            if (players[pi].techs.mobilization) base += 2;
+            return base;
+        }
+        function fortBudgetMax(pi) { return coresOf(pi) * 2; }
+        function fortBudgetRemaining(pi) { return Math.max(0, fortBudgetMax(pi) - players[pi].fortBuiltThisTurn); }
+        function modCap(pi) {
+            var base = coresOf(pi);
+            if (players[pi].techs.industrial) base += coresOf(pi);
+            return base;
+        }
+        function ultGuardCoverCount(x, y, owner) {
+            var n = 0;
+            for (var i = 0; i < cells.length; i++) {
+                var c = cells[i];
+                if (c.owner !== owner || c.hp <= 0) continue;
+                var has = false;
+                for (var j = 0; j < c.forts.length; j++) if (c.forts[j].id === "ultguard") { has = true; break; }
+                if (has && Math.abs(x - c.x) <= 1 && Math.abs(y - c.y) <= 1) n++;
+            }
+            return n;
+        }
+
+        /* ===================== NP 计分 ===================== */
+        function calcNP(pi) {
+            var p = players[pi], np = 0, i, j;
+            for (i = 0; i < cells.length; i++) {
+                var c = cells[i];
+                if (c.owner !== pi || c.hp <= 0) continue;
+                np += 150;
+                np += c.hp * 0.7;
+                np += c.atk * 1.0;
+                var engIron = 0;
+                for (j = 0; j < c.eng.length; j++) { var ed = engDef(c.eng[j].id); if (ed) engIron += costToIron(ed.cost); }
+                np += engIron * 0.7;
+                var fortIron = 0;
+                for (j = 0; j < c.forts.length; j++) { var fd = fortDef(c.forts[j].id); if (fd) fortIron += costToIron(fd.cost); }
+                np += fortIron * 1.0;
+            }
+            for (i = 0; i < armies.length; i++) if (armies[i].owner === pi) {
+                np += Math.min(800, (armies[i].hp * armies[i].atk) / 200);
+            }
+            np += (p.coal + p.iron + p.copper * 3 + p.uranium * 12) * 0.8;
+            var tc = 0; for (var k in p.techs) if (p.techs[k]) tc++;
+            np += tc * 250;
+            return Math.round(np);
+        }
+
+        /* ===================== 死星辅助 ===================== */
+        function canBuildDeathStar(pi) {
+            var p = players[pi];
+            if (coresOf(pi) < 1) return false;
+            if (myArmies(pi).length >= armyCap(pi)) return false;
+            if (p.iron < 700 || p.uranium < 350 || p.copper < 100) return false;
+            return true;
+        }
+
+        function addDeathStar(owner, x, y) {
+            var ds = {
+                id: nextArmyId++, owner: owner, x: x, y: y, hp: 300, atk: 350, steps: 0, merit: 0,
+                hasSpeed: false, pursuitThisTurn: false, isDeathStar: true, charge: 0, doomTimer: 0
+            };
+            armies.push(ds);
+            return ds;
+        }
+
+        function calcDeathStarDamage(c) {
+            var base = Math.ceil(c.hp * 0.5) + 80;
+            var hasFortified = !!c.flags.fortified;
+            var hasBlast = false;
+            for (var i = 0; i < c.forts.length; i++) if (c.forts[i].id === "blastlayer") hasBlast = true;
+            if (hasFortified) base = 80;
+            else if (hasBlast) base = base * 0.5;
+            if (c.owner >= 0) {
+                var p = players[c.owner];
+                if (p.techs.skydefense && !p.blocked.skydefense) base = base * 0.6;
+            }
+            return Math.ceil(base);
+        }
+
+        function updateDeathStarCharge() {
+            for (var pi = 0; pi < 2; pi++) {
+                for (var ai = 0; ai < armies.length; ai++) {
+                    var a = armies[ai];
+                    if (a.isDeathStar && a.owner === pi && a.charge < 2) {
+                        a.charge++;
+                        if (a.charge === 2) say(players[pi].name + " 死星#" + a.id + " 充能完毕（2/2）");
+                    }
+                }
+            }
+        }
+
+        /* ===================== 开局 ===================== */
+        function newGame() {
+            cells = []; armies = []; nextArmyId = 1; turn = 1; active = 0; logs = [];
+            selected = null; moveMode = false; fortMode = false; viewCell = null;
+            pick = null; buildCtx = null; engCtx = null; fortCtx = null; techMenu = false; techTab = "base";
+            armyPick = null;
+            techblockSelecting = false;
+            gameOver = false;
+            document.getElementById("gameover").style.display = "none";
+
+            players = [
+                {
+                    name: "先手蓝", coal: 3, iron: 3, copper: 0, uranium: 0, ae: 1,
+                    techs: {}, prog: {}, blocked: {}, railgunCharge: 0,
+                    fortBuiltThisTurn: 0, speedUsed: false, pursuitUsed: false, uraniumTrades: 0,
+                    techblockUsed: false
+                },
+                {
+                    name: "后手红", coal: 3, iron: 4, copper: 0, uranium: 0, ae: 1,
+                    techs: {}, prog: {}, blocked: {}, railgunCharge: 0,
+                    fortBuiltThisTurn: 0, speedUsed: false, pursuitUsed: false, uraniumTrades: 0,
+                    techblockUsed: false
+                }
+            ];
+
+            for (var y = 0; y < N; y++) for (var x = 0; x < N; x++) {
+                cells.push({
+                    x: x, y: y, type: CITY_NONE, origType: CITY_NONE, owner: -1, hp: 0, atk: 0,
+                    eng: [], forts: [], gainHp: 0, gainAtk: 0, flags: { fortified: false, empShield: false }
+                });
+            }
+            var o0 = cellAt(0, 0); o0.type = CITY_ORIGIN; o0.origType = CITY_ORIGIN; o0.owner = 0; o0.hp = 200; o0.atk = 80;
+            var o1 = cellAt(4, 4); o1.type = CITY_ORIGIN; o1.origType = CITY_ORIGIN; o1.owner = 1; o1.hp = 200; o1.atk = 80;
+            for (var y2 = 0; y2 < N; y2++) { var nc = cellAt(2, y2); nc.type = CITY_NEUTRAL; nc.origType = CITY_NEUTRAL; nc.owner = -1; nc.hp = 1000; nc.atk = 150; }
+            addArmy(0, 0, 0, 1, 1); addArmy(1, 4, 4, 1, 1);
+            say("第 1 回合开始");
+            say("欢迎游玩童弘毅与大肥鱼设计的坐牢策略类游戏");
+            say("总的来说，你需要尽量积攒资源，构造强大的城池与军队，开发科技，击败敌人.一旦初始城市毁灭这一方失败。每占领一座城市，可以每回合从中得到一定固定资源");
+            say("但是这还是不够，你需要建造工程");
+            say("...");
+            say("顺带一提，研发“铜科技”是你唯一开始拿铜的方法");
+            say("死星是一个十分强大的远程单位,可能动用举国之力建造,当死星制造完成。你可以从工地上回收一部分资源");
+            say("提示：点击地图格子查看详情；多支军队同格时会出现选择面板；死星充能满后可开火。");
+            startTurn();
+        }
+
+        function addArmy(owner, x, y, hp, atk) {
+            var a = { id: nextArmyId++, owner: owner, x: x, y: y, hp: hp, atk: atk, steps: 0, merit: 0, hasSpeed: false, pursuitThisTurn: false, doomTimer: 0 };
+            armies.push(a); return a;
+        }
+
+        /* ===================== 查询 ===================== */
+        function armiesAt(x, y) { var o = []; for (var i = 0; i < armies.length; i++) if (armies[i].x === x && armies[i].y === y && armies[i].hp > 0) o.push(armies[i]); return o; }
+        function allyAt(x, y, owner, exId) { for (var i = 0; i < armies.length; i++) { var a = armies[i]; if (a.x === x && a.y === y && a.owner === owner && a.id !== exId && a.hp > 0) return a; } return null; }
+        function enemyAt(x, y, owner) { for (var i = 0; i < armies.length; i++) { var a = armies[i]; if (a.x === x && a.y === y && a.owner !== owner && a.hp > 0) return a; } return null; }
+        function myArmies(pi) { var o = []; for (var i = 0; i < armies.length; i++) if (armies[i].owner === pi && armies[i].hp > 0) o.push(armies[i]); return o; }
+        function citiesOf(pi) { var n = 0; for (var i = 0; i < cells.length; i++) if (cells[i].owner === pi && cells[i].hp > 0) n++; return n; }
+        function findArmy(id) { for (var i = 0; i < armies.length; i++) if (armies[i].id === id) return armies[i]; return null; }
+        function removeDead() { var k = []; for (var i = 0; i < armies.length; i++) if (armies[i].hp > 0) k.push(armies[i]); armies = k; }
+        function hasCityForEng(pi) { for (var i = 0; i < cells.length; i++) { var c = cells[i]; if (c.owner === pi && c.hp > 0 && c.eng.length < ENG_LIMIT_PER_CITY) return true; } return false; }
+        function hasCityForArmy(pi) { for (var i = 0; i < cells.length; i++) { var c = cells[i]; if (c.owner === pi && c.hp > 0 && armiesAt(c.x, c.y).length < 2) return true; } return false; }
+
+        /* ===================== 收入 ===================== */
+        function income() {
+            for (var pi = 0; pi < 2; pi++) {
+                var p = players[pi];
+                p.ae = 1; p.fortBuiltThisTurn = 0; p.speedUsed = false; p.pursuitUsed = false; p.uraniumTrades = 0;
+                for (var i = 0; i < armies.length; i++) armies[i].pursuitThisTurn = false;
+
+                var total = { coal: 0, iron: 0, copper: 0, uranium: 0 };
+                say("—— " + p.name + " 收入（城市" + citiesOf(pi) + "，核心" + coresOf(pi) + "）——");
+                var hasCopper = !!p.techs.copper;
+                var hasWartime = !!p.techs.wartimesystem;
+                var hasUPlant = !!p.techs.uraniumplant;
+                var hasHighSupply = !!p.techs.highsupply;
+
+                for (var ci = 0; ci < cells.length; ci++) {
+                    var c = cells[ci];
+                    if (c.owner !== pi || c.hp <= 0) continue;
+                    var g = { coal: 2, iron: 2, copper: 0, uranium: 0 };
+                    var notes = []; var trade = false;
+                    if (hasCopper) { g.copper += 1; notes.push("铜科技+1铜"); }
+
+                    for (var j = 0; j < c.eng.length; j++) {
+                        var d = engDef(c.eng[j].id);
+                        if (!d) continue;
+                        if (d.out) {
+                            for (var k = 0; k < RES_ORDER.length; k++) {
+                                var r = RES_ORDER[k];
+                                if (d.out[r]) {
+                                    var mult = hasWartime ? 2 : 1;
+                                    var add = d.out[r] * mult;
+                                    if (r === "uranium" && hasUPlant) add = Math.ceil(add * 1.5);
+                                    g[r] += add;
+                                }
+                            }
+                        }
+                        if (d.special === "iron-25") trade = true;
+                        if (d.special === "atk12") { c.atk += 12; c.gainAtk += 12; notes.push("炮机+12攻"); }
+                        if (d.special === "hp20") { c.hp += 20; c.gainHp += 20; notes.push("筑墙+20HP"); }
+                        if (d.special === "hp30") { c.hp += 30; c.gainHp += 30; notes.push("筑墙+30HP"); }
+                        if (d.special === "heal30") {
+                            var heal = hasHighSupply ? 60 : 30;
+                            var list = armiesAt(c.x, c.y), hc = 0;
+                            for (var m = 0; m < list.length; m++) if (list[m].owner === pi) { list[m].hp += heal; hc++; }
+                            if (hc > 0) notes.push("补给+" + (hc * heal) + "HP" + (hasHighSupply ? "(高效)" : ""));
+                        }
+                    }
+                    if (trade) {
+                        if (p.iron + g.iron >= 25) { g.iron -= 25; g.uranium += 3; notes.push("交易-25铁+3铀"); }
+                        else notes.push("交易设备：铁不足，不产铀");
+                    }
+                    for (var k2 = 0; k2 < RES_ORDER.length; k2++) total[RES_ORDER[k2]] += g[RES_ORDER[k2]];
+                    p.coal += g.coal; p.iron += g.iron; p.copper += g.copper; p.uranium += g.uranium;
+                    say("  (" + c.x + "," + c.y + ") 煤" + sgn(g.coal) + " 铁" + sgn(g.iron) + " 铜" + sgn(g.copper) + " 铀" + sgn(g.uranium) + (notes.length ? " ｜" + notes.join("，") : ""));
+                }
+                say(p.name + " 合计：煤" + sgn(total.coal) + " 铁" + sgn(total.iron) + " 铜" + sgn(total.copper) + " 铀" + sgn(total.uranium));
+            }
+        }
+
+        function resetSteps() { for (var i = 0; i < armies.length; i++) { armies[i].steps = 0; armies[i].hasSpeed = false; } }
+
+        function startTurn() {
+            moveMode = false; fortMode = false; selected = null; pick = null;
+            buildCtx = null; engCtx = null; fortCtx = null; techMenu = false; armyPick = null;
+            techblockSelecting = false;
+            active = 0;
+            say("==== 第 " + turn + " 回合 ====");
+            income();
+            updateDeathStarCharge();
+            resetSteps();
+            say("请选择行动：建工程 / 建军 / 建工事 / 科技 / 建死星 / 移动 / 跳过");
+            render();
+        }
+
+        /* ===================== 回合结束 ===================== */
+        function endPhase() {
+            pick = null; buildCtx = null; engCtx = null; fortCtx = null; fortMode = false; techMenu = false; armyPick = null;
+            techblockSelecting = false;
+            if (active === 0) {
+                active = 1; moveMode = false; selected = null;
+                say("轮到后手红行动");
+                render();
+                return;
+            }
+            endRound();
+        }
+
+        function endRound() {
+            say("—— 回合结束结算 ——");
+            for (var pi = 0; pi < 2; pi++) {
+                var p = players[pi];
+                if (p.techs.railgun && !p.blocked.railgun) {
+                    p.railgunCharge++;
+                    if (p.railgunCharge >= 2) {
+                        var enemy = 1 - pi, hit = 0;
+                        for (var i = 0; i < armies.length; i++) {
+                            if (armies[i].owner === enemy && armies[i].hp > 0 && !armies[i].isDeathStar) {
+                                armies[i].hp -= 200; hit++;
+                                say(p.name + " 轨道炮台 命中 军团#" + armies[i].id + " -200HP");
+                            }
+                        }
+                        say(p.name + " 轨道炮台结算：命中" + hit + "支");
+                        p.railgunCharge = 0;
+                        removeDead();
+                        checkLose(); if (gameOver) return;
+                    }
+                }
+            }
+
+            /* 决死冲锋倒计时 */
+            for (var di2 = 0; di2 < armies.length; di2++) {
+                var da = armies[di2];
+                if (da.doomTimer > 0) {
+                    da.doomTimer--;
+                    if (da.doomTimer === 0) {
+                        da.hp -= 850;
+                        say("决死冲锋反噬：军团#" + da.id + " -850HP" + (da.hp <= 0 ? "（阵亡）" : "，剩" + da.hp + "HP"));
+                    } else {
+                        say("决死冲锋倒计时：军团#" + da.id + " 剩余" + da.doomTimer + "回合");
+                    }
+                }
+            }
+            removeDead();
+            checkLose(); if (gameOver) return;
+
+            if (turn >= 81) {
+                var dmg = turn >= 101 ? 15 : 5;
+                for (var ci = 0; ci < cells.length; ci++) {
+                    var c = cells[ci];
+                    if (c.hp <= 0) continue;
+                    c.hp -= dmg;
+                    if (c.hp <= 0) {
+                        c.hp = 0;
+                        if (c.type === CITY_ORIGIN) { say("焦土：原始城(" + c.x + "," + c.y + ")被摧毁"); }
+                        else {
+                            c.owner = -1; c.type = CITY_NONE; c.atk = 0; c.gainHp = 0; c.gainAtk = 0; c.eng = []; c.forts = [];
+                            say("焦土：(" + c.x + "," + c.y + ")归零，工程与工事毁灭");
+                        }
+                    }
+                }
+                say("焦土结算：所有城市 -" + dmg + "HP");
+                checkLose(); if (gameOver) return;
+            }
+
+            if (turn === 70) {
+                var np0 = calcNP(0), np1 = calcNP(1);
+                say("第70回合NP检查：先手蓝 " + np0 + "，后手红 " + np1);
+                if (np0 > 0 && np1 > 0) {
+                    var ratio = np0 / np1;
+                    if (ratio > 1.5) return endGame(0, "第70回合NP比值>1.5（" + np0 + ":" + np1 + "）");
+                    if (ratio < 0.67) return endGame(1, "第70回合NP比值<0.67（" + np0 + ":" + np1 + "）");
+                } else if (np0 > 0 && np1 <= 0) return endGame(0, "第70回合NP比值无穷大");
+                else if (np1 > 0 && np0 <= 0) return endGame(1, "第70回合NP比值无穷大");
+            }
+
+            if (turn >= 120) {
+                var f0 = calcNP(0), f1 = calcNP(1);
+                say("第120回合强制结算：先手蓝 " + f0 + "，后手红 " + f1);
+                if (f0 > f1) return endGame(0, "第120回合NP高者胜（" + f0 + ":" + f1 + "）");
+                if (f1 > f0) return endGame(1, "第120回合NP高者胜（" + f0 + ":" + f1 + "）");
+                return endGame(1, "第120回合NP相同，后手红胜（" + f0 + ":" + f1 + "）");
+            }
+
+            turn++;
+            startTurn();
+        }
+
+        function endGame(winner, reason) {
+            gameOver = true;
+            var el = document.getElementById("gameover");
+            el.style.display = "flex";
+            var title = document.getElementById("go-title");
+            if (winner === 0) { title.textContent = "先手蓝 胜"; title.style.color = "#60a5fa"; }
+            else if (winner === 1) { title.textContent = "后手红 胜"; title.style.color = "#f87171"; }
+            else { title.textContent = "平局"; title.style.color = "#cbd5e1"; }
+            document.getElementById("go-reason").textContent = reason;
+            document.getElementById("go-np").innerHTML = "先手蓝 NP: " + calcNP(0) + "<br>后手红 NP: " + calcNP(1);
+            say("游戏结束：" + reason);
+            render();
+        }
+
+        /* ===================== 战斗 ===================== */
+        function battle(atkHp, atkPow, defHp, defPow) {
+            if (atkPow <= 0 && defPow <= 0) return { win: "none", a: atkHp, d: defHp, r: 0 };
+            if (atkPow <= 0) return { win: "def", a: 0, d: defHp, r: 0 };
+            if (defPow <= 0) return { win: "atk", a: atkHp, d: 0, r: 0 };
+            var nA = Math.ceil(defHp / atkPow), nB = Math.ceil(atkHp / defPow);
+            if (nA === nB) return { win: "both", a: 0, d: 0, r: nA };
+            if (nA < nB) return { win: "atk", a: atkHp - nA * defPow, d: 0, r: nA };
+            return { win: "def", a: 0, d: defHp - nB * atkPow, r: nB };
+        }
+
+        function claimCity(c, pi) {
+            c.owner = pi; c.type = CITY_OWNED;
+            c.gainHp = 0; c.gainAtk = 0;
+            c.eng = []; c.forts = [];
+            c.hp = 50; c.atk = 0;
+            var hasRecv = players[pi].techs.receive && !players[pi].blocked.receive;
+            var hasFort = players[pi].techs.fortify && !players[pi].blocked.fortify;
+            if (hasRecv) c.atk = 150;
+            if (hasFort) c.hp = 200;
+            say(players[pi].name + " 占领 (" + c.x + "," + c.y + ") → " + c.hp + "HP/" + c.atk + "攻" + (hasRecv ? " 接收" : "") + (hasFort ? " 固守" : ""));
+        }
+
+        function applyMoveUltGuard(a) {
+            var enemy = 1 - a.owner;
+            var cnt = ultGuardCoverCount(a.x, a.y, enemy);
+            if (cnt > 0) {
+                var dmg = 300 * cnt;
+                a.hp -= dmg;
+                say("终极加护：军团#" + a.id + " 移动至(" + a.x + "," + a.y + ") 受 " + dmg + (a.hp <= 0 ? "（阵亡）" : "，剩" + a.hp + "HP"));
+                removeDead();
+            }
+        }
+
+        function attackArmy(a, b) {
+            var aAtk = a.atk, bAtk = b.atk;
+            if (b.isDeathStar && players[a.owner].techs.hunter && !players[a.owner].blocked.hunter) {
+                aAtk *= 2;
+                say("猎星者：军团#" + a.id + " 对死星伤害×2");
+            }
+            var bArmor = players[b.owner].techs.armor && !players[b.owner].blocked.armor;
+            var aArmor = players[a.owner].techs.armor && !players[a.owner].blocked.armor;
+            aAtk *= bArmor ? 0.8 : 1;
+            bAtk *= aArmor ? 0.8 : 1;
+
+            var res = battle(a.hp, aAtk, b.hp, bAtk);
+            var r = res.r;
+            var dmgToA = 300 * r * ultGuardCoverCount(b.x, b.y, b.owner);
+            var dmgToB = 300 * r * ultGuardCoverCount(b.x, b.y, a.owner);
+
+            var aH = a.hp, bH = b.hp;
+            if (res.win === "atk") { aH = Math.max(1, Math.ceil(res.a)); bH = 0; }
+            else if (res.win === "def") { aH = 0; bH = Math.max(1, Math.ceil(res.d)); }
+            else if (res.win === "both") { aH = 0; bH = 0; }
+            aH -= dmgToA; bH -= dmgToB;
+            a.hp = aH; b.hp = bH;
+
+            var aAlive = a.hp > 0, bAlive = b.hp > 0;
+            say("军团#" + a.id + " 打军团#" + b.id + "：轮数" + r + (dmgToA > 0 ? "，加护对攻方" + dmgToA : "") + (dmgToB > 0 ? "，加护对守方" + dmgToB : ""));
+            if (aAlive && !bAlive) {
+                if (!a.isDeathStar) { a.merit = Math.min(3, a.merit + 1); say("→攻方胜，军团#" + a.id + " 军功+1（" + a.merit + "/3）"); }
+                else say("→攻方胜（死星不获得军功）");
+            } else if (!aAlive && bAlive) {
+                if (!b.isDeathStar) { b.merit = Math.min(3, b.merit + 1); say("→守方胜，军团#" + b.id + " 军功+1（" + b.merit + "/3）"); }
+                else say("→守方胜（死星不获得军功）");
+            } else if (!aAlive && !bAlive) {
+                say("→同归于尽（无军功）");
+            }
+            removeDead();
+        }
+
+        function attackCity(a, c) {
+            var cAtkBefore = c.atk;
+            var hasArmor = (c.owner === 0 || c.owner === 1) && players[c.owner].techs.armor && !players[c.owner].blocked.armor;
+            var atkA = a.atk * (hasArmor ? 0.8 : 1);
+            var res = battle(a.hp, atkA, c.hp, c.atk);
+            var r = res.r;
+            var dmgToA = 300 * r * ultGuardCoverCount(c.x, c.y, c.owner);
+            var label = res.win === "atk" ? "破城" : res.win === "def" ? "攻方阵亡" : res.win === "both" ? "同归于尽" : "无伤害";
+            say("军团#" + a.id + " 攻(" + c.x + "," + c.y + ")：轮数" + r + "→" + label + (dmgToA > 0 ? "，加护对攻方" + dmgToA : ""));
+
+            var aH = a.hp;
+            if (res.win === "atk") {
+                aH = Math.max(1, Math.ceil(res.a));
+                if (c.type === CITY_ORIGIN) { c.hp = 0; say("原始城市被摧毁！"); }
+                else claimCity(c, a.owner);
+            } else if (res.win === "def") { aH = 0; c.hp = Math.max(1, Math.ceil(res.d)); }
+            else if (res.win === "both") {
+                aH = 0;
+                if (c.type === CITY_ORIGIN) { c.hp = 1; say("原始城市同归于尽，保留1HP"); }
+                else { c.hp = 0; c.owner = -1; c.type = CITY_NONE; c.atk = 0; c.gainHp = 0; c.gainAtk = 0; c.eng = []; c.forts = []; say("城市同归于尽，变为空地"); }
+            }
+            aH -= dmgToA; a.hp = aH;
+
+            if (a.hp > 0 && res.win === "atk" && cAtkBefore > 0) {
+                a.merit = Math.min(3, a.merit + 1);
+                say("军团#" + a.id + " 军功+1（破有攻击力城，" + a.merit + "/3）");
+            }
+            if (a.hp <= 0 && dmgToA > 0) say("军团#" + a.id + " 在加护下阵亡");
+            removeDead();
+            checkLose();
+        }
+
+        function checkLose() {
+            if (gameOver) return;
+            var o0 = cellAt(0, 0), o1 = cellAt(4, 4);
+            if (o0.hp <= 0 && o1.hp <= 0) { endGame(-1, "双方原始城市归零，平局"); return; }
+            if (o0.hp <= 0) { endGame(1, "先手蓝原始城市被摧毁"); return; }
+            if (o1.hp <= 0) { endGame(0, "后手红原始城市被摧毁"); return; }
+        }
+
+        /* ===================== 死星开火 ===================== */
+        function startDeathStarAction() {
+            if (!canBuildDeathStar(active)) { say("条件不足：需 700铁+350铀+100铜、军队名额、核心 ≥1"); return; }
+            pick = { mode: "deathstarCity" };
+            say(players[active].name + " 建造死星：请选择己方城市（绿色高亮）");
+            render();
+        }
+
+        function startDeathStarFire() {
+            var ds = findArmy(selected);
+            if (!ds || !ds.isDeathStar || ds.owner !== active) return;
+            if (ds.charge < 2) { say("死星未充能完毕（" + Math.max(0, ds.charge) + "/2）"); return; }
+            if (players[active].uranium < 20) { say("铀不足（需20）"); return; }
+            pick = null; buildCtx = null; engCtx = null; fortCtx = null; techMenu = false; fortMode = false;
+            pick = { mode: "deathstarTarget", dsId: ds.id };
+            say("死星已就绪：请点击敌方城市作为目标（消耗 20 铀）");
+            render();
+        }
+
+        function fireDeathStar(ds, target) {
+            var p = players[ds.owner];
+            if (ds.charge < 2) { say("死星未充能"); return; }
+            if (p.uranium < 20) { say("铀不足"); return; }
+
+            p.uranium -= 20;
+            var intercepted = !!target.flags.empShield;
+            target.flags.empShield = false;
+
+            if (intercepted) {
+                say("拦截弹触发：目标(" + target.x + "," + target.y + ") 免疫本次伤害");
+                ds.charge = -2;
+                say("敌方死星充能延迟2回合（需4回合重新充能）");
+            } else {
+                var damage = calcDeathStarDamage(target);
+                var origHp = target.hp;
+                target.hp -= damage;
+
+                if (target.type === CITY_ORIGIN && target.owner >= 0 && target.owner !== ds.owner) {
+                    if (target.hp <= 1) {
+                        target.hp = 1;
+                        say("原始城(" + target.x + "," + target.y + ") 被死星击中：" + origHp + "→1HP（锁血，需用其它兵力攻克）");
+                    } else {
+                        say("死星击中原始城(" + target.x + "," + target.y + ")：-" + damage + "HP（剩余" + target.hp + "）");
+                    }
+                } else if (target.hp <= 0) {
+                    target.hp = 0; target.owner = -1; target.type = CITY_NONE; target.atk = 0;
+                    target.gainHp = 0; target.gainAtk = 0; target.eng = []; target.forts = [];
+                    say("死星击毁城市(" + target.x + "," + target.y + ")（-" + damage + "HP → 归零）");
+                } else {
+                    say("死星击中(" + target.x + "," + target.y + ")：-" + damage + "HP（剩余" + target.hp + "）");
+                }
+
+                if (target.owner >= 0 && target.owner !== ds.owner) {
+                    var tOwner = players[target.owner];
+                    if (tOwner.techs.counterattack && !tOwner.blocked.counterattack && target.atk > 0) {
+                        var reflect = Math.ceil(target.atk * 0.6);
+                        ds.hp -= reflect;
+                        say("反击协议：" + tOwner.name + " 城市反伤死星 " + reflect + "HP");
+                        if (ds.hp <= 0) { ds.hp = 0; removeDead(); say("死星被反击摧毁！"); }
+                    }
+                }
+                ds.charge = 0;
+            }
+            checkLose();
+            render();
+        }
+
+        /* ===================== 点击与移动 ===================== */
+        function clickCell(x, y) {
+            if (gameOver) return;
+            viewCell = { x: x, y: y };
+
+            /* 工事模式 */
+            if (fortMode && fortCtx === null && pick === null) {
+                var fc = cellAt(x, y);
+                if (fc.owner !== active || fc.hp <= 0) { say("请选择己方城市"); render(); return; }
+                if (fortBudgetRemaining(active) <= 0) { say("工事预算已耗尽，请结束工事"); render(); return; }
+                fortCtx = { city: fc }; render(); return;
+            }
+
+            /* 选择模式 */
+            if (pick !== null) {
+                var c0 = cellAt(x, y);
+                if (pick.mode === "buildCity") {
+                    if (c0.owner !== active || c0.hp <= 0) { say("请选择己方城市"); render(); return; }
+                    if (c0.eng.length >= ENG_LIMIT_PER_CITY) { say("工程槽已满"); render(); return; }
+                    engCtx = { city: c0 }; pick = null; say("请选择工程类型"); render(); return;
+                }
+                if (pick.mode === "armyCity") {
+                    if (c0.owner !== active || c0.hp <= 0) { say("请选择己方城市"); render(); return; }
+                    if (armiesAt(x, y).length >= 2) { say("驻军已满"); render(); return; }
+                    buildCtx = { spot: c0, picks: [] }; pick = null; render(); return;
+                }
+                if (pick.mode === "deathstarCity") {
+                    if (c0.owner !== active || c0.hp <= 0) { say("请选择己方城市"); render(); return; }
+                    if (armiesAt(x, y).length >= 2) { say("该城驻军已满"); render(); return; }
+                    if (!canBuildDeathStar(active)) { say("条件不足"); pick = null; render(); return; }
+                    var p0 = players[active];
+                    pay(p0, { iron: 700, uranium: 350, copper: 100 });
+                    p0.uranium += 200;
+                    p0.ae = 0;
+                    var ds0 = addDeathStar(active, x, y);
+                    say(p0.name + " 在 (" + x + "," + y + ") 建造死星#" + ds0.id + "（300HP/350攻，充能0/2，返还200铀）");
+                    pick = null; render(); endPhase(); return;
+                }
+                if (pick.mode === "deathstarTarget") {
+                    var ds = findArmy(pick.dsId);
+                    if (!ds) { pick = null; render(); return; }
+                    if (c0.owner === ds.owner) { say("不能攻击己方城市"); render(); return; }
+                    if (c0.type === CITY_NONE && c0.owner === -1) { say("不能攻击空地"); render(); return; }
+                    if (c0.hp <= 0) { say("目标已摧毁"); render(); return; }
+                    fireDeathStar(ds, c0);
+                    pick = null; render(); return;
+                }
+                if (pick.mode === "interceptCity") {
+                    if (c0.owner !== active || c0.hp <= 0) { say("请选择己方城市"); render(); return; }
+                    var p1 = players[active], d1 = techDef("intercept");
+                    if (!canPay(p1, d1.resAct)) { say("铀不足（需15）"); pick = null; render(); return; }
+                    p1.ae -= d1.aeAct; pay(p1, d1.resAct);
+                    c0.flags.empShield = true;
+                    say(p1.name + " 拦截弹：(" + c0.x + "," + c0.y + ") 获得免疫下次远程伤害");
+                    pick = null; render(); endPhase(); return;
+                }
+                if (pick.mode === "reviveArmy") {
+                    var here = armiesAt(x, y), target = null;
+                    for (var m = 0; m < here.length; m++) if (here[m].owner === active) { target = here[m]; break; }
+                    if (!target) { say("请选择己方军队"); render(); return; }
+                    var p2 = players[active], td = techDef("revive");
+                    if (p2.ae < td.aeAct) { say("AE不足"); pick = null; render(); return; }
+                    if (!canPay(p2, td.resAct)) { say("资源不足"); pick = null; render(); return; }
+                    p2.ae -= td.aeAct; pay(p2, td.resAct);
+                    var heal = p2.techs.highsupply && !p2.blocked.highsupply ? 200 : 100;
+                    target.hp += heal;
+                    say(p2.name + " 复苏 军团#" + target.id + " +" + heal + "HP（现" + target.hp + "）" + (heal === 200 ? "（高效补给×2）" : ""));
+                    pick = null; render(); endPhase(); return;
+                }
+                if (pick.mode === "pursuitArmy") {
+                    var here2 = armiesAt(x, y), target2 = null;
+                    for (var m2 = 0; m2 < here2.length; m2++) if (here2[m2].owner === active) { target2 = here2[m2]; break; }
+                    if (!target2) { say("请选择己方军队"); render(); return; }
+                    if (target2.merit < 1) { say("该军团无军功"); pick = null; render(); return; }
+                    if (target2.pursuitThisTurn) { say("该军团本回合已发动过"); pick = null; render(); return; }
+                    var p3 = players[active], td2 = techDef("pursuit");
+                    if (p3.ae < td2.aeAct) { say("AE不足"); pick = null; render(); return; }
+                    var paid = false;
+                    if (canPay(p3, { iron: 120 })) { pay(p3, { iron: 120 }); paid = true; }
+                    else if (canPay(p3, { copper: 60 })) { pay(p3, { copper: 60 }); paid = true; }
+                    if (!paid) { say("资源不足"); pick = null; render(); return; }
+                    p3.ae -= td2.aeAct;
+                    target2.merit -= 1;
+                    var gain = Math.min(400, Math.ceil(target2.hp * 0.5));
+                    target2.hp += gain;
+                    target2.pursuitThisTurn = true;
+                    say(p3.name + " 乘胜追击 军团#" + target2.id + " +" + gain + "HP（现" + target2.hp + "，军功" + target2.merit + "/3）");
+                    pick = null; render(); endPhase(); return;
+                }
+                if (pick.mode === "doomchargeArmy") {
+                    var hereD = armiesAt(x, y), targetD = null;
+                    for (var mD = 0; mD < hereD.length; mD++) if (hereD[mD].owner === active) { targetD = hereD[mD]; break; }
+                    if (!targetD) { say("请选择己方军队"); render(); return; }
+                    if (targetD.isDeathStar) { say("死星不能使用决死冲锋"); pick = null; render(); return; }
+                    var pD = players[active], tdD = techDef("doomcharge");
+                    if (pD.ae < tdD.aeAct) { say("AE不足"); pick = null; render(); return; }
+                    if (!canPay(pD, tdD.resAct)) { say("铀不足（需100）"); pick = null; render(); return; }
+                    pD.ae -= tdD.aeAct; pay(pD, tdD.resAct);
+                    targetD.hp += 900;
+                    targetD.doomTimer = 4;
+                    say(pD.name + " 决死冲锋：军团#" + targetD.id + " +900HP（现" + targetD.hp + "），4回合后若未死亡受850伤害");
+                    pick = null; render(); endPhase(); return;
+                }
+                if (pick.mode === "giantfortCity") {
+                    var gc = cellAt(x, y);
+                    if (gc.owner !== active || gc.hp <= 0) { say("请选择己方城市"); render(); return; }
+                    gc.hp += 2000; gc.atk += 500; gc.gainHp += 2000; gc.gainAtk += 500;
+                    gc.flags.fortified = true;
+                    say(players[active].name + " 巨型堡垒化 (" + gc.x + "," + gc.y + ") +2000HP +500攻");
+                    pick = null; render(); endPhase(); return;
+                }
+            }
+
+            /* 移动 */
+            if (moveMode && selected !== null) {
+                var a = findArmy(selected);
+                if (a && a.owner === active) {
+                    var dist = Math.abs(x - a.x) + Math.abs(y - a.y);
+                    if (dist === 1) { doMove(a, cellAt(x, y)); return; }
+                }
+            }
+
+            /* 选择军队 */
+            if (armyPick !== null) armyPick = null;
+            var here3 = armiesAt(x, y);
+            if (here3.length === 1) { selected = here3[0].id; }
+            else if (here3.length > 1) {
+                var own = [];
+                for (var i = 0; i < here3.length; i++) if (here3[i].owner === active) own.push(here3[i]);
+                if (own.length > 0) { armyPick = own; selected = null; }
+                else { selected = here3[0].id; }
+            } else { selected = null; }
+            render();
+        }
+
+        function doMove(a, c) {
+            var maxSteps = a.hasSpeed ? 5 : 2;
+            if (a.steps >= maxSteps) { say("步数已用完"); render(); return; }
+
+            var existing = armiesAt(c.x, c.y);
+            if (existing.length >= 2) { say("同格最多 2 支，无法进入"); render(); return; }
+
+            a.x = c.x; a.y = c.y; a.steps++;
+            applyMoveUltGuard(a);
+            if (a.hp <= 0) { selected = null; render(); return; }
+
+            var foe = enemyAt(c.x, c.y, a.owner);
+            while (foe !== null && a.hp > 0) {
+                attackArmy(a, foe);
+                if (a.hp <= 0) { selected = null; render(); return; }
+                foe = enemyAt(c.x, c.y, a.owner);
+            }
+
+            var mate = allyAt(c.x, c.y, a.owner, a.id);
+            if (mate !== null && !mate.isDeathStar && !a.isDeathStar) {
+                mate.hp += a.hp; mate.atk += a.atk;
+                mate.merit = Math.max(mate.merit, a.merit);
+                mate.steps = Math.min(mate.steps, a.steps);
+                if (a.doomTimer > 0 && mate.doomTimer === 0) mate.doomTimer = a.doomTimer;
+                else if (a.doomTimer > 0 && mate.doomTimer > 0) mate.doomTimer = Math.min(mate.doomTimer, a.doomTimer);
+                a.hp = 0; removeDead();
+                say("军团#" + a.id + " 合并进 #" + mate.id + " → " + mate.hp + "HP/" + mate.atk + "攻");
+                selected = mate.id; render(); return;
+            }
+
+            if (c.owner !== a.owner) {
+                if (c.hp > 0) attackCity(a, c);
+                else claimCity(c, a.owner);
+            }
+
+            selected = null;
+            if (checkLose()) return;
+            render();
+        }
+
+        /* ===================== 科技 ===================== */
+        function actTech() {
+            if (players[active].ae < 1) { say("AE不足"); render(); return; }
+            techMenu = true; techTab = "base"; pick = null;
+            say("科技：本轮只能做一次操作（解锁 / 投入 / 发动）");
+            render();
+        }
+
+        function renderTechMenu() {
+            var p = players[active];
+            var html = "<div class='box'><b>科技</b> <button onclick='techTab=\"base\";render()' style='" + (techTab === "base" ? "border-color:#22c55e" : "") + "'>基础</button><button onclick='techTab=\"late\";render()' style='" + (techTab === "late" ? "border-color:#22c55e" : "") + "'>后期</button>";
+            html += "<div class='dim'>本轮只能做一次科技操作</div>";
+            var list = techTab === "base" ? BASE_TECHS : LATE_TECHS;
+            for (var i = 0; i < list.length; i++) {
+                var t = list[i];
+                var unlocked = !!p.techs[t.id];
+                var blocked = !!p.blocked[t.id];
+                var prog = p.prog[t.id] || 0;
+                html += "<div style='margin-top:5px;padding-top:4px;border-top:1px dashed #2b3949'>";
+                html += "<div><b>" + t.name + "</b> ";
+                if (blocked) html += "<span style='color:#ef4444'>已封锁</span>";
+                else if (unlocked) html += "<span class='tech-on'>已解锁</span>";
+                else html += "<span class='dim'>未解锁</span>";
+                if (t.aeUnlock >= 2) html += " <span class='dim'>[" + prog + "/" + t.aeUnlock + "]</span>";
+                html += "</div><div class='dim'>" + t.desc + "</div>";
+
+                if (blocked) { html += "<div class='dim'>已被封锁</div>"; }
+                else if (!unlocked) {
+                    var canProg = p.ae >= 1;
+                    var needRes = t.aeUnlock === 1 && t.resUnlock ? canPay(p, t.resUnlock) : true;
+                    if (t.aeUnlock >= 2 && prog < t.aeUnlock - 1) {
+                        html += "<button onclick=\"progTech('" + t.id + "')\"" + (canProg ? "" : " disabled") + ">投入1AE（" + (prog + 1) + "/" + t.aeUnlock + "）</button>";
+                    } else {
+                        var resTxt = t.resUnlock && Object.keys(t.resUnlock).length ? " + " + costText(t.resUnlock) : "";
+                        html += "<button onclick=\"unlockTech('" + t.id + "')\"" + (canProg && needRes ? "" : " disabled") + ">" + (t.aeUnlock >= 2 ? "完成解锁" : "解锁") + "（1AE" + resTxt + "）</button>";
+                    }
+                } else if (t.passive) { html += "<div class='tech-on'>被动已生效</div>"; }
+                else if (t.onUnlock) { html += "<button onclick=\"triggerOnUnlock('" + t.id + "')\">执行效果</button>"; }
+                else {
+                    var canAct = p.ae >= t.aeAct;
+                    var resOk = t.resAct ? (canPay(p, t.resAct) || (t.altResAct && canPay(p, t.altResAct))) : true;
+                    var actTxt = t.resAct ? (" + " + (costText(t.resAct) || "") + (t.altResAct ? " 或 " + costText(t.altResAct) : "")) : "";
+                    html += "<button onclick=\"activateTech('" + t.id + "')\"" + (canAct && resOk ? "" : " disabled") + ">发动（" + t.aeAct + "AE" + actTxt + "）</button>";
+                }
+                html += "</div>";
+            }
+            html += "<div style='margin-top:8px'><button onclick='techMenu=false;render()'>返回</button></div></div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+
+        function progTech(id) {
+            var def = techDef(id); if (!def) return;
+            var p = players[active];
+            if (p.ae < 1) { say("AE不足"); return; }
+            p.ae -= 1; p.prog[id] = (p.prog[id] || 0) + 1;
+            say(p.name + " 投入1AE到【" + def.name + "】（" + p.prog[id] + "/" + def.aeUnlock + "）");
+            techMenu = false; render(); endPhase();
+        }
+
+        function unlockTech(id) {
+            var def = techDef(id); if (!def) return;
+            var p = players[active];
+            if (p.techs[id]) return;
+            var prog = p.prog[id] || 0;
+            if (def.aeUnlock >= 2 && prog < def.aeUnlock - 1) { say("进度不足"); return; }
+            if (p.ae < 1) { say("AE不足"); return; }
+            if (def.resUnlock && !canPay(p, def.resUnlock)) { say("资源不足"); return; }
+            p.ae -= 1;
+            if (def.resUnlock) pay(p, def.resUnlock);
+            p.techs[id] = true; delete p.prog[id];
+            say(p.name + " 解锁【" + def.name + "】" + (def.passive ? "（被动）" : ""));
+            if (def.id === "railgun") { p.railgunCharge = 0; }
+            techMenu = false; render();
+
+            if (def.onUnlock === "giantfort") { pick = { mode: "giantfortCity" }; say("巨型堡垒化：请选择己方城市"); render(); return; }
+            if (def.onUnlock === "nuclearpeace") {
+                var enemy = 1 - active;
+                for (var i = 0; i < cells.length; i++) {
+                    var c = cells[i];
+                    if (c.owner === enemy && c.hp > 0) { var dmg = Math.ceil(c.hp * 0.8); c.hp = Math.max(1, c.hp - dmg); }
+                }
+                say(p.name + " 核平协议：敌方所有城市失去80%HP（最低1）");
+                checkLose(); if (gameOver) return;
+                render(); endPhase(); return;
+            }
+            endPhase();
+        }
+
+        function triggerOnUnlock(id) {
+            var def = techDef(id); if (!def || !def.onUnlock) return;
+            if (def.onUnlock === "giantfort") { pick = { mode: "giantfortCity" }; techMenu = false; say("请选择己方城市"); render(); }
+            if (def.onUnlock === "nuclearpeace") {
+                var enemy = 1 - active;
+                for (var i = 0; i < cells.length; i++) {
+                    var c = cells[i];
+                    if (c.owner === enemy && c.hp > 0) { var dmg = Math.ceil(c.hp * 0.8); c.hp = Math.max(1, c.hp - dmg); }
+                }
+                say(players[active].name + " 核平协议生效");
+                checkLose(); if (gameOver) return;
+                techMenu = false; render(); endPhase();
+            }
+        }
+
+        function activateTech(id) {
+            var def = techDef(id); if (!def) return;
+            var p = players[active];
+            if (!p.techs[id]) return;
+
+            if (id === "revive") {
+                if (p.ae < def.aeAct) { say("AE不足"); return; }
+                if (!canPay(p, def.resAct)) { say("资源不足"); return; }
+                techMenu = false; pick = { mode: "reviveArmy" }; say("请选择目标己方军队"); render(); return;
+            }
+            if (id === "pursuit") {
+                if (p.ae < def.aeAct) { say("AE不足"); return; }
+                if (!canPay(p, def.resAct) && !canPay(p, def.altResAct)) { say("资源不足"); return; }
+                techMenu = false; pick = { mode: "pursuitArmy" }; say("请选择目标己方军队"); render(); return;
+            }
+            if (id === "intercept") {
+                if (p.ae < def.aeAct) { say("AE不足"); return; }
+                if (!canPay(p, def.resAct)) { say("铀不足（需15）"); return; }
+                techMenu = false; pick = { mode: "interceptCity" }; say("拦截弹：请选择己方城市"); render(); return;
+            }
+            if (id === "doomcharge") {
+                if (p.ae < def.aeAct) { say("AE不足"); return; }
+                if (!canPay(p, def.resAct)) { say("铀不足（需100）"); return; }
+                techMenu = false; pick = { mode: "doomchargeArmy" };
+                say("决死冲锋：请选择目标己方军队"); render(); return;
+            }
+            if (id === "techblock") {
+                if (p.ae < def.aeAct) { say("AE不足"); return; }
+                if (players[0].techblockUsed || players[1].techblockUsed) { say("技术封锁已被使用（全局仅一次）"); return; }
+                techMenu = false;
+                techblockSelecting = true;
+                render(); return;
+            }
+            say("该科技暂无可发动效果");
+        }
+
+        function renderTechBlockMenu() {
+            var p = players[active];
+            var html = "<div class='box'><b>技术封锁 · 选择后期科技</b><div class='dim'>全局仅一次；不得选择自己已解锁的科技</div>";
+            for (var i = 0; i < LATE_TECHS.length; i++) {
+                var lt = LATE_TECHS[i];
+                var selfHas = !!p.techs[lt.id];
+                var alreadyBlocked = !!p.blocked[lt.id];
+                var dis = (selfHas || alreadyBlocked) ? " disabled" : "";
+                var tag = selfHas ? "（自己已解锁）" : alreadyBlocked ? "（已封锁）" : "";
+                html += "<button onclick=\"techblockConfirm('" + lt.id + "')\"" + dis + ">" + lt.name + tag + "</button>";
+            }
+            html += "<div style='margin-top:6px'><button onclick='techblockSelecting=false;render()'>取消</button></div></div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+
+        function techblockConfirm(techId) {
+            var def = null;
+            for (var i = 0; i < LATE_TECHS.length; i++) if (LATE_TECHS[i].id === techId) def = LATE_TECHS[i];
+            if (!def) return;
+            var opp = 1 - active;
+            var html = "<div class='box'><b>技术封锁确认</b><div class='dim'>全局仅一次；双方永久不可解锁/使用</div>";
+            html += "<div>目标：<b>" + def.name + "</b></div>";
+            html += "<div class='dim'>" + def.desc + "</div>";
+            if (players[opp].techs[techId]) {
+                html += "<div style='color:#f59e0b;font-size:11px'>对方已解锁该科技，封锁后退还 50% 成本</div>";
+            }
+            html += "<button onclick=\"doTechBlock('" + techId + "')\" style='border-color:#ef4444'>确认封锁（1AE）</button>";
+            html += "<button onclick='renderTechBlockMenu()'>返回</button>";
+            html += "</div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+
+        function doTechBlock(techId) {
+            var def = null;
+            for (var i = 0; i < LATE_TECHS.length; i++) if (LATE_TECHS[i].id === techId) def = LATE_TECHS[i];
+            if (!def) return;
+            var p = players[active];
+            if (p.techs[techId]) { say("不能封锁自己已解锁的科技"); return; }
+            if (p.blocked[techId]) { say("该科技已被封锁"); return; }
+            if (players[0].techblockUsed || players[1].techblockUsed) { say("技术封锁已被使用（全局仅一次）"); return; }
+            if (p.ae < 1) { say("AE不足"); return; }
+
+            p.ae -= 1;
+            players[0].techblockUsed = true;
+            players[1].techblockUsed = true;
+            p.blocked[techId] = true;
+            var opp = 1 - active;
+            players[opp].blocked[techId] = true;
+            say(p.name + " 发动技术封锁：【" + def.name + "】双方永久不可解锁/使用");
+
+            if (players[opp].techs[techId]) {
+                var refund = {};
+                for (var rk in def.resUnlock) if (def.resUnlock.hasOwnProperty(rk)) {
+                    var half = Math.floor(def.resUnlock[rk] * 0.5);
+                    players[opp][rk] = (players[opp][rk] || 0) + half;
+                    refund[rk] = half;
+                }
+                delete players[opp].techs[techId];
+                say("对方已解锁，效果失效，退还 50% 成本：" + costText(refund));
+            }
+            techblockSelecting = false;
+            techMenu = false;
+            render();
+            endPhase();
+        }
+
+        function cancelPick() { pick = null; armyPick = null; say("已取消"); render(); }
+
+        /* ===================== 建工程 ===================== */
+        function actBuild() {
+            var p = players[active];
+            if (p.ae < 1) { say("AE不足"); render(); return; }
+            if (!hasCityForEng(active)) { say("所有城市工程槽已满"); render(); return; }
+            pick = { mode: "buildCity" }; selected = null; say("请选择城市"); render();
+        }
+        function renderEngMenu() {
+            var c = engCtx.city, p = players[active];
+            var html = "<div class='box'><b>在(" + c.x + "," + c.y + ")建工程</b><div class='dim'>" + c.eng.length + "/" + ENG_LIMIT_PER_CITY + "</div>";
+            for (var i = 0; i < ENGS.length; i++) {
+                var e = ENGS[i], dup = false;
+                for (var j = 0; j < c.eng.length; j++) if (c.eng[j].id === e.id) dup = true;
+                var full = c.eng.length >= ENG_LIMIT_PER_CITY;
+                var poor = !canPay(p, e.cost);
+                var dis = (dup || full || poor) ? " disabled" : "";
+                html += "<button onclick=\"doBuildEng('" + e.id + "')\"" + dis + ">" + e.name + "｜" + costText(e.cost) + (dup ? "（已建）" : full ? "（满）" : poor ? "（缺资源）" : "") + "</button>";
+            }
+            html += "<div style='margin-top:6px'><button onclick='cancelEng()'>取消</button></div></div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+        function cancelEng() { engCtx = null; render(); }
+        function doBuildEng(id) {
+            if (!engCtx) return;
+            var c = engCtx.city, p = players[active], def = engDef(id);
+            for (var j = 0; j < c.eng.length; j++) if (c.eng[j].id === id) { say("已建"); return; }
+            if (c.eng.length >= ENG_LIMIT_PER_CITY) { say("满"); return; }
+            if (!canPay(p, def.cost)) { say("资源不足"); return; }
+            pay(p, def.cost); c.eng.push({ id: id }); p.ae = 0;
+            say(p.name + " 建【" + def.name + "】于(" + c.x + "," + c.y + ")（下回合起生效）");
+            engCtx = null; render(); endPhase();
+        }
+
+        /* ===================== 建军 ===================== */
+        function actArmy() {
+            var p = players[active];
+            if (p.ae < 1) { say("AE不足"); render(); return; }
+            var cap = armyCap(active);
+            if (myArmies(active).length >= cap) { say("军队已达上限 " + cap); render(); return; }
+            if (!hasCityForArmy(active)) { say("所有城市驻军已满"); render(); return; }
+            pick = { mode: "armyCity" }; selected = null; say("请选择建军城市"); render();
+        }
+        function buildMenuCost() { var t = { coal: 0, iron: 0, copper: 0, uranium: 0 }; for (var i = 0; i < buildCtx.picks.length; i++) { var c = buildCtx.picks[i].cost; for (var k = 0; k < RES_ORDER.length; k++) { var r = RES_ORDER[k]; if (c[r]) t[r] += c[r]; } } return t; }
+        function buildMenuHp() { var t = 0; for (var i = 0; i < buildCtx.picks.length; i++) t += buildCtx.picks[i].hp; return t; }
+        function buildMenuAtk() { var t = 0; for (var i = 0; i < buildCtx.picks.length; i++) t += buildCtx.picks[i].atk; return t; }
+        function addMod(id) {
+            var cap = modCap(active);
+            if (buildCtx.picks.length >= cap) { say("模块数已达上限 " + cap); return; }
+            for (var i = 0; i < MODS.length; i++) if (MODS[i].id === id) buildCtx.picks.push(MODS[i]);
+            renderBuildMenu();
+        }
+        function clearMods() { buildCtx.picks = []; renderBuildMenu(); }
+        function cancelBuild() { buildCtx = null; say("已取消"); render(); }
+        function confirmBuild() {
+            var p = players[active];
+            if (buildCtx.picks.length < 1) { say("至少选1个模块"); renderBuildMenu(); return; }
+            var cost = buildMenuCost();
+            if (!canPay(p, cost)) { say("资源不足"); renderBuildMenu(); return; }
+            var hp = buildMenuHp(), atk = buildMenuAtk();
+            if (hp <= 0) { say("HP必须>0"); renderBuildMenu(); return; }
+            var hasRocket = false, hasHpMod = false;
+            for (var i = 0; i < buildCtx.picks.length; i++) {
+                if (buildCtx.picks[i].id === "rocket") hasRocket = true;
+                if (buildCtx.picks[i].hp > 0) hasHpMod = true;
+            }
+            if (hasRocket && !hasHpMod) { say("火箭炮需搭配HP模块"); return; }
+            var mob = players[active].techs.mobilization && !players[active].blocked.mobilization;
+            if (mob) { hp += 5; atk += 5; }
+            pay(p, cost); p.ae = 0;
+            var a = addArmy(active, buildCtx.spot.x, buildCtx.spot.y, hp, atk);
+            say(p.name + " 建军团#" + a.id + "（" + hp + "HP/" + atk + "攻" + (mob ? "，全民动员+5/5" : "") + "）");
+            buildCtx = null; render(); endPhase();
+        }
+        function renderBuildMenu() {
+            if (!buildCtx) return;
+            var cap = modCap(active), full = buildCtx.picks.length >= cap;
+            var p = players[active];
+            var canDS = p.iron >= 700 && p.uranium >= 350 && p.copper >= 100 && myArmies(active).length < armyCap(active) && coresOf(active) >= 1;
+            var html = "<div class='box'><b>建军 · 装配</b><div class='dim'>模块上限：" + cap + "（" + buildCtx.picks.length + "/" + cap + "）</div>";
+            for (var i = 0; i < MODS.length; i++) {
+                var m = MODS[i];
+                html += "<button onclick=\"addMod('" + m.id + "')\"" + (full ? " disabled" : "") + ">" + m.name + "｜" + costText(m.cost) + "</button>";
+            }
+            html += "<div>已选：" + (buildCtx.picks.length ? buildCtx.picks.map(function (x) { return x.name; }).join("+") : "无") + "</div>";
+            html += "<div>合计：" + costText(buildMenuCost()) + " · " + buildMenuHp() + "HP/" + buildMenuAtk() + "攻</div>";
+            html += "<button onclick='confirmBuild()' style='border-color:#22c55e'>确认建军</button><button onclick='clearMods()'>清空</button><button onclick='cancelBuild()'>取消</button>";
+            html += "<div style='margin-top:6px;padding-top:4px;border-top:1px dashed #2b3949'><b>建造死星</b></div>";
+            html += "<button onclick='startDeathStarAction()'" + (canDS ? "" : " disabled") + " style='border-color:#a855f7'>☄ 建造死星（700铁+350铀+100铜，返还200铀）</button>";
+            html += "</div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+
+        /* ===================== 工事 ===================== */
+        function actFort() {
+            var p = players[active];
+            if (p.ae < 1) { say("AE不足"); render(); return; }
+            if (coresOf(active) <= 0) { say("无核心城市"); render(); return; }
+            p.ae = 0; fortMode = true; selected = null;
+            say("进入工事模式：本回合预算 " + fortBudgetMax(active) + " 次，点击己方城市选择工事，点“结束工事”交棒");
+            render();
+        }
+        function endFort() { fortMode = false; fortCtx = null; say("结束工事"); endPhase(); }
+        function renderFortMenu() {
+            var c = fortCtx.city, p = players[active];
+            var html = "<div class='box'><b>在(" + c.x + "," + c.y + ")建工事</b><div class='dim'>剩余预算：" + fortBudgetRemaining(active) + "/" + fortBudgetMax(active) + "</div>";
+            for (var i = 0; i < FORTS.length; i++) {
+                var f = FORTS[i], cnt = 0;
+                for (var j = 0; j < c.forts.length; j++) if (c.forts[j].id === f.id) cnt++;
+                var lim = f.limit > 0 && cnt >= f.limit;
+                var poor = !canPay(p, f.cost);
+                var hpFail = f.reqHpAbove !== undefined && c.hp <= f.reqHpAbove;
+                var dis = (lim || poor || hpFail) ? " disabled" : "";
+                html += "<button onclick=\"doBuildFort('" + f.id + "')\"" + dis + ">" + f.name + "｜" + costText(f.cost) + "｜" + fortEffectText(f) + (lim ? "（限1）" : hpFail ? "（HP不足）" : poor ? "（缺资源）" : "") + "</button>";
+            }
+            html += "<div style='margin-top:6px'><button onclick='closeFortMenu()'>返回</button></div></div>";
+            document.getElementById("acts").innerHTML = html;
+        }
+        function closeFortMenu() { fortCtx = null; render(); }
+        function doBuildFort(id) {
+            if (!fortCtx) return;
+            var c = fortCtx.city, p = players[active], def = fortDef(id);
+            var cnt = 0; for (var j = 0; j < c.forts.length; j++) if (c.forts[j].id === id) cnt++;
+            if (def.limit > 0 && cnt >= def.limit) { say("每城限" + def.limit); return; }
+            if (def.reqHpAbove !== undefined && c.hp <= def.reqHpAbove) { say("HP需 > " + def.reqHpAbove); return; }
+            if (fortBudgetRemaining(active) <= 0) { say("预算耗尽"); return; }
+            if (!canPay(p, def.cost)) { say("资源不足"); return; }
+            pay(p, def.cost); c.forts.push({ id: id });
+            c.hp += def.hp; c.atk += def.atk; c.gainHp += def.hp; c.gainAtk += def.atk;
+            p.fortBuiltThisTurn++;
+            say(p.name + " 建【" + def.name + "】于(" + c.x + "," + c.y + ")（剩余预算" + fortBudgetRemaining(active) + "）");
+            fortCtx = null;
+            if (fortBudgetRemaining(active) <= 0) say("预算已用完，请点“结束工事”");
+            render();
+        }
+
+        /* ===================== 移动/跳过 ===================== */
+        function actMove() {
+            var p = players[active];
+            if (p.ae < 1) { say("AE不足"); render(); return; }
+            p.ae = 0; moveMode = true; resetSteps();
+            say(p.name + " 进入移动：先点己方军团，再点相邻格");
+            render();
+        }
+        function endMove() { moveMode = false; selected = null; say("结束移动"); endPhase(); }
+        function actSkip() { players[active].ae = 0; say(players[active].name + " 跳过"); endPhase(); }
+
+        function useSpeed() {
+            var p = players[active];
+            if (!p.techs.speed || p.blocked.speed) { say("未解锁速行"); return; }
+            if (p.speedUsed) { say("本回合已使用速行"); return; }
+            if (selected === null) { say("请先选中军队"); return; }
+            var a = findArmy(selected);
+            if (!a || a.owner !== active) { say("请选择己方军队"); return; }
+            if (!canPay(p, { iron: 40 })) { say("铁不足（需40）"); return; }
+            pay(p, { iron: 40 }); a.hasSpeed = true; p.speedUsed = true;
+            say("速行：军团#" + a.id + " 本回合移动上限5步");
+            render();
+        }
+
+        function doUraniumTrade() {
+            var p = players[active];
+            if (!p.techs.uraniumplant || p.blocked.uraniumplant) { say("未解锁铀浓缩厂"); return; }
+            if (p.uraniumTrades >= 3) { say("已达3次上限"); return; }
+            if (!canPay(p, { coal: 60, iron: 60 })) { say("资源不足（需60煤+60铁）"); return; }
+            pay(p, { coal: 60, iron: 60 });
+            p.uranium += 3; p.uraniumTrades++;
+            say(p.name + " 铀浓缩厂兑换：-60煤-60铁 +3铀（" + p.uraniumTrades + "/3）");
+            render();
+        }
+
+        function selectFromArmyPick(id) {
+            selected = id; armyPick = null;
+            render();
+        }
+
+        /* ===================== 渲染 ===================== */
+        function money(p) { return "煤" + p.coal + " 铁" + p.iron + " 铜" + p.copper + " 铀" + p.uranium; }
+
+        function renderHud() {
+            var msg = "第" + turn + "回合 · " + players[active].name + " · AE " + players[active].ae;
+            if (moveMode) msg += " · 移动中";
+            if (fortMode) msg += " · 工事模式";
+            if (techblockSelecting) msg += " · 技术封锁选择";
+            if (pick) msg += " · " + pick.mode;
+            if (engCtx) msg += " · 选工程";
+            if (buildCtx) msg += " · 装配";
+            if (fortCtx) msg += " · 选工事";
+            if (techMenu) msg += " · 科技";
+            if (armyPick) msg += " · 选军团";
+            document.getElementById("hud").textContent = msg;
+        }
+
+        function renderSide() {
+            var html = "";
+            for (var i = 0; i < 2; i++) {
+                var p = players[i];
+                var tn = [];
+                for (var k in p.techs) if (p.techs[k]) {
+                    var td = techDef(k);
+                    if (td) tn.push(td.name + (p.blocked[k] ? "(封)" : ""));
+                }
+                var dsList = [];
+                for (var di = 0; di < armies.length; di++) {
+                    if (armies[di].isDeathStar && armies[di].owner === i) {
+                        var ds = armies[di];
+                        dsList.push("☄死星#" + ds.id + "⚡" + Math.max(0, ds.charge) + "/2");
+                    }
+                }
+                html += "<div class='box' style='padding:6px 8px'><b>" + p.name + "</b> " + money(p) +
+                    "<br><span class='dim'>城" + citiesOf(i) + " 核心" + coresOf(i) + " 军队" + myArmies(i).length + "/" + armyCap(i) + " 工事预算" + (fortBudgetMax(i) - p.fortBuiltThisTurn) + "/" + fortBudgetMax(i) + " NP " + calcNP(i) + "</span>" +
+                    (dsList.length ? "<br><span style='color:#a855f7;font-size:11px'>" + dsList.join(" · ") + "</span>" : "") +
+                    (tn.length ? "<br><span class='tech-on' style='font-size:11px'>" + tn.join("、") + "</span>" : "") +
+                    "</div>";
+            }
+            if (selected !== null) {
+                var a = findArmy(selected);
+                if (a) {
+                    var line = (a.isDeathStar ? "☄ 死星#" : "军团#") + a.id + " " + a.hp + "HP/" + a.atk + "攻";
+                    var sub = a.isDeathStar
+                        ? "充能 " + Math.max(0, a.charge) + "/2（2回合/发，上限2）"
+                        : "步" + a.steps + "/" + (a.hasSpeed ? 5 : 2) + " 军功" + a.merit + "/3" + (a.doomTimer > 0 ? " · <span style='color:#ef4444'>决死倒计时" + a.doomTimer + "</span>" : "");
+                    html += "<div class='box' style='border-color:" + (a.isDeathStar ? "#a855f7" : "#f59e0b") + ";padding:6px 8px'>" + line + "<br><span class='dim'>" + sub + "</span></div>";
+                }
+            }
+            document.getElementById("pinfo").innerHTML = html;
+
+            var acts = document.getElementById("acts");
+
+            /* 多军队选择 */
+            if (armyPick !== null) {
+                var ph = "<div class='pickbox'><b>选择军团</b><br><span class='dim'>同格有多支军队，请选择要操作的那一支</span><br>";
+                for (var pi2 = 0; pi2 < armyPick.length; pi2++) {
+                    var ai2 = armyPick[pi2];
+                    var icon = ai2.isDeathStar ? "☄" : "★";
+                    var info = ai2.isDeathStar ? " ⚡" + Math.max(0, ai2.charge) + "/2" : "";
+                    ph += "<button onclick='selectFromArmyPick(" + ai2.id + ")'>" + icon + " 军团#" + ai2.id + " " + ai2.hp + "HP/" + ai2.atk + "攻" + info + "</button>";
+                }
+                ph += "</div>";
+                acts.innerHTML = ph; return;
+            }
+
+            /* 技术封锁选择 */
+            if (techblockSelecting) { renderTechBlockMenu(); return; }
+
+            if (pick) {
+                var hint = "请点击地图";
+                if (pick.mode === "buildCity") hint = "选建工程城市";
+                if (pick.mode === "armyCity") hint = "选建军城市";
+                if (pick.mode === "deathstarCity") hint = "选死星建造城市";
+                if (pick.mode === "deathstarTarget") hint = "点击敌方城市作为死星目标";
+                if (pick.mode === "interceptCity") hint = "选拦截弹目标己方城市";
+                if (pick.mode === "reviveArmy") hint = "选目标军队";
+                if (pick.mode === "pursuitArmy") hint = "选目标军队";
+                if (pick.mode === "doomchargeArmy") hint = "选目标军队（决死冲锋）";
+                if (pick.mode === "giantfortCity") hint = "选巨型堡垒化城市";
+                acts.innerHTML = "<div class='pickbox'><b>选择中</b>：" + hint + "<br><button onclick='cancelPick()'>取消（不扣 AE）</button></div>";
+                return;
+            }
+            if (engCtx) { renderEngMenu(); return; }
+            if (fortCtx) { renderFortMenu(); return; }
+            if (buildCtx) { renderBuildMenu(); return; }
+            if (techMenu) { renderTechMenu(); return; }
+
+            if (fortMode) {
+                acts.innerHTML = "<div class='pickbox'><b>工事模式</b><br><span class='dim'>剩余预算 " + fortBudgetRemaining(active) + "/" + fortBudgetMax(active) + "</span><br><button onclick='endFort()' style='border-color:#f59e0b;font-weight:bold'>结束工事</button></div>";
+                return;
+            }
+
+            var p2 = players[active];
+            var btn = "";
+            var canEng = p2.ae >= 1 && hasCityForEng(active);
+            var canArmy = p2.ae >= 1 && myArmies(active).length < armyCap(active) && hasCityForArmy(active);
+            var canFort = p2.ae >= 1 && coresOf(active) > 0;
+            var canTech = p2.ae >= 1;
+            var canDS = p2.ae >= 1 && canBuildDeathStar(active);
+
+            btn += "<button onclick='actBuild()'" + (canEng ? "" : " disabled") + ">建工程</button>";
+            btn += "<button onclick='actArmy()'" + (canArmy ? "" : " disabled") + ">建军</button>";
+            btn += "<button onclick='actFort()'" + (canFort ? "" : " disabled") + ">建工事</button>";
+            btn += "<button onclick='actTech()'" + (canTech ? "" : " disabled") + ">科技</button>";
+            btn += "<button onclick='startDeathStarAction()'" + (canDS ? "" : " disabled") + " style='border-color:#a855f7'>☄ 建死星</button>";
+
+            if (moveMode) {
+                btn += "<button onclick='useSpeed()' " + (p2.techs.speed && !p2.speedUsed ? "" : " disabled") + ">速行(40铁)</button>";
+                btn += "<button onclick='endMove()' style='border-color:#f59e0b;font-weight:bold'>结束移动</button>";
+            } else {
+                btn += "<button onclick='actMove()'" + (p2.ae < 1 ? " disabled" : "") + ">移动</button>";
+                btn += "<button onclick='actSkip()'" + (p2.ae < 1 ? " disabled" : "") + ">跳过</button>";
+            }
+
+            /* 死星开火按钮 */
+            if (selected !== null) {
+                var a3 = findArmy(selected);
+                if (a3 && a3.isDeathStar && a3.owner === active && a3.charge >= 2 && players[active].uranium >= 20) {
+                    btn += "<button onclick='startDeathStarFire()' style='border-color:#a855f7;font-weight:bold'>☄ 发射死星（20铀）</button>";
+                }
+            }
+
+            if (p2.techs.uraniumplant && !p2.blocked.uraniumplant && p2.uraniumTrades < 3)
+                btn += "<button onclick='doUraniumTrade()'>铀浓缩兑换(" + p2.uraniumTrades + "/3)</button>";
+
+            var warns = [];
+            if (p2.ae >= 1 && !hasCityForEng(active)) warns.push("工程槽全满");
+            if (p2.ae >= 1 && myArmies(active).length >= armyCap(active)) warns.push("军队达上限" + armyCap(active));
+            else if (p2.ae >= 1 && !hasCityForArmy(active)) warns.push("驻军全满");
+            if (warns.length) btn += "<div class='warn'>⚠ " + warns.join("；") + "</div>";
+            acts.innerHTML = btn;
+        }
+
+        function renderDetail() {
+            var el = document.getElementById("detail");
+            if (!viewCell) { el.innerHTML = "<div class='box'><span class='dim'>点击格子查看详情</span></div>"; return; }
+            var c = cellAt(viewCell.x, viewCell.y), base = baseStats(c);
+            var html = "<div class='box'><div><b>(" + c.x + "," + c.y + ")</b> " + cityTypeName(c) + " · " + ownerName(c.owner) + "</div>";
+            html += "<div>当前：<b>" + c.hp + "HP</b>/<b>" + c.atk + "攻</b></div>";
+            html += "<div class='dim'>基础：" + base.hp + "HP/" + base.atk + "攻</div>";
+            var flags = [];
+            if (c.flags.fortified) flags.push("堡垒化");
+            if (c.flags.empShield) flags.push("拦截弹");
+            html += "<div>增益：<span style='color:#22c55e'>" + sgn(c.gainHp) + "HP/" + sgn(c.gainAtk) + "攻</span>";
+            if (flags.length) html += " <span class='dim'>[" + flags.join("、") + "]</span>";
+            html += "</div>";
+            html += "<div>工程槽：" + c.eng.length + "/" + ENG_LIMIT_PER_CITY + "</div>";
+            for (var j = 0; j < c.eng.length; j++) { var ed = engDef(c.eng[j].id); if (ed) html += "<div style='font-size:11px'>· " + ed.name + "：" + engEffectText(ed) + "</div>"; }
+            html += "<div style='margin-top:4px'>工事：" + c.forts.length + "座</div>";
+            for (var fj = 0; fj < c.forts.length; fj++) { var fd = fortDef(c.forts[fj].id); if (fd) html += "<div style='font-size:11px'>· " + fd.name + "：" + fortEffectText(fd) + "</div>"; }
+            var list = armiesAt(c.x, c.y);
+            html += "<div style='margin-top:4px'>驻军" + list.length + "/2</div>";
+            for (var k = 0; k < list.length; k++) {
+                var a = list[k];
+                var line = "· ";
+                if (a.isDeathStar) {
+                    line += "☄死星#" + a.id + "(" + ownerName(a.owner) + ") " + a.hp + "HP/" + a.atk + "攻 ⚡" + Math.max(0, a.charge) + "/2";
+                } else {
+                    line += "军团#" + a.id + "(" + ownerName(a.owner) + ") " + a.hp + "HP/" + a.atk + "攻 军功" + a.merit + "/3" + (a.doomTimer > 0 ? " <span style='color:#ef4444'>决死" + a.doomTimer + "</span>" : "");
+                }
+                html += "<div style='font-size:11px'>" + line + "</div>";
+            }
+            html += "</div>"; el.innerHTML = html;
+        }
+
+        function cellClass(c) { if (c.owner === 0) return "own0"; if (c.owner === 1) return "own1"; if (c.type === CITY_NEUTRAL) return "neu"; return "empty"; }
+        function cellText(c) { if (c.type === CITY_NONE && c.owner === -1) return "空地"; return c.hp + "HP/" + c.atk + "攻"; }
+
+        function renderMap() {
+            var html = "";
+            for (var y = 0; y < N; y++) {
+                html += "<tr>";
+                for (var x = 0; x < N; x++) {
+                    var c = cellAt(x, y), cls = cellClass(c);
+                    if (pick && c.owner === active && c.hp > 0) {
+                        if (pick.mode === "buildCity" && c.eng.length >= ENG_LIMIT_PER_CITY) cls += " full";
+                        else if (pick.mode === "armyCity" && armiesAt(x, y).length >= 2) cls += " full";
+                        else if (pick.mode === "deathstarCity" && armiesAt(x, y).length >= 2) cls += " full";
+                        else if (pick.mode === "deathstarTarget") cls += " full";
+                        else cls += " pick";
+                    }
+                    if (fortMode && c.owner === active && c.hp > 0) cls += " pick";
+                    if (pick && pick.mode === "deathstarTarget" && c.owner >= 0 && c.owner !== active && c.hp > 0) cls += " full";
+                    for (var i = 0; i < armies.length; i++) if (armies[i].id === selected && armies[i].x === x && armies[i].y === y) cls += " sel";
+                    if (viewCell && viewCell.x === x && viewCell.y === y) cls += " view";
+                    var hasDS = false;
+                    var list = armiesAt(x, y);
+                    for (var di = 0; di < list.length; di++) if (list[di].isDeathStar) hasDS = true;
+                    if (hasDS) cls += " ds";
+                    html += "<td class='" + cls + "' onclick='clickCell(" + x + "," + y + ")'>";
+                    html += "<div style='font-size:10px;color:#7b8fa3'>" + x + "," + y + (c.eng.length ? " ⚙" + c.eng.length : "") + (c.forts.length ? " 🛡" + c.forts.length : "") + "</div>";
+                    html += "<div style='font-size:12px'>" + cellText(c) + "</div>";
+                    for (var j = 0; j < list.length; j++) {
+                        var a = list[j];
+                        var col = a.owner === 0 ? "#93c5fd" : "#fca5a5";
+                        var icon = a.isDeathStar ? "☄" : "★";
+                        var charge = a.isDeathStar ? " ⚡" + Math.max(0, a.charge) : "";
+                        var doom = a.doomTimer > 0 ? " ☠" + a.doomTimer : "";
+                        var si = moveMode && a.id === selected ? " (" + ((a.hasSpeed ? 5 : 2) - a.steps) + "步)" : "";
+                        html += "<div style='font-size:11px;color:" + col + "'>" + icon + a.hp + "/" + a.atk + charge + doom + si + "</div>";
+                    }
+                    html += "</td>";
+                }
+                html += "</tr>";
+            }
+            document.getElementById("map").innerHTML = html;
+        }
+
+        function renderLog() {
+            var html = "";
+            for (var i = logs.length - 1; i >= 0; i--) html += "<div>" + logs[i] + "</div>";
+            document.getElementById("log").innerHTML = html;
+        }
+
+        function render() { renderHud(); renderSide(); renderMap(); renderLog(); renderDetail(); }
+
+        newGame();
+        render();
+    </script>
+</body>
+</html>
